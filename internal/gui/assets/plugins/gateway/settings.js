@@ -18,6 +18,7 @@ let portDraft = { value: null, err: "" };
 function portSays(m) {
   let x;
   if ((x = /^port (\d+) is in use by another program/.exec(m))) return t("Port {p} is in use by another program: pick another one", { p: x[1] });
+  if ((x = /^port (\d+) can't be bound/.exec(m))) return t("Port {p} can't be bound: the system turned it down, as Windows does for a number inside a range it reserves for itself; pick another one", { p: x[1] });
   if ((x = /^another magpie serves the gateway at (\S+):/.exec(m))) return t("Another magpie serves the gateway at {url}: set its port there, or quit it first", { url: x[1] });
   if (/from 1024 to 65535/.test(m)) return t("A port is a number from 1024 to 65535");
   return t(m);

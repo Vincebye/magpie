@@ -813,7 +813,8 @@ var WhileServing []func(context.Context)
 // ListenAndServe runs the gateway until ctx ends, and returns once the
 // requests in flight then have finished: within 2s, or, handing over, as
 // long as a stream takes. A bind error means another magpie is already
-// serving, which is fine for the caller to ignore.
+// serving, which is fine for the caller to ignore; one the system refused,
+// with nothing serving the port, is kept for the page (#2756).
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	migrateLANKeyBestEffort()
 	ScopeOwnBrowserKey()
@@ -836,6 +837,12 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 			if b, ok := NoteHeld(); ok {
 				return fmt.Errorf("%w (%s)", err, b.Sentence())
 			}
+		} else if portRefused(err) {
+			// nothing has it: the system turned the bind down, and the page
+			// says that rather than naming a program that isn't there
+			// (#2756)
+			b := NoteRefused()
+			return fmt.Errorf("%w (%s)", err, b.Sentence())
 		}
 		return err
 	}

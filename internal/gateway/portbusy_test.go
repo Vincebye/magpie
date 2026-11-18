@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -113,6 +114,49 @@ func TestListenErrorNamesTheHolder(t *testing.T) {
 	}
 	if h := LastHeld(); h != nil {
 		t.Fatalf("LastHeld kept %+v", h)
+	}
+}
+
+// #2756: Windows turns a bind down for a number inside a range it reserves
+// for itself (Hyper-V, WinNAT), and nothing holds the port. That refusal is
+// told apart from a busy port, kept for the page, and said as what it is:
+// the page named a program that wasn't there, and Settings called it one.
+func TestPortRefusedIsNotAPortInUse(t *testing.T) {
+	refused := errors.New("listen tcp 127.0.0.1:3425: bind: An attempt was made to access a socket in a way forbidden by its access permissions.")
+	if !portRefused(refused) {
+		t.Fatalf("the Windows refusal isn't read as one: %v", refused)
+	}
+	if addrInUse(refused) {
+		t.Fatalf("a refused port was taken for a busy one: %v", refused)
+	}
+	if !PortRefused(refused) || AddrInUse(refused) {
+		t.Fatal("the exported pair disagrees with the one inside")
+	}
+	for _, notRefused := range []error{
+		errors.New("listen tcp 127.0.0.1:3425: bind: address already in use"),
+		errors.New("listen tcp: lookup tcp/3425: unknown port"),
+		errors.New("listen tcp 256.256.256.256:1: bind: invalid argument"),
+	} {
+		if portRefused(notRefused) {
+			t.Errorf("%v was taken for a refusal", notRefused)
+		}
+	}
+
+	// what the page is told: the port, no holder, and the way out
+	t.Setenv("MAGPIE_ADDR", "127.0.0.1:3425")
+	defer ClearHeld()
+	b := NoteRefused()
+	if h := LastHeld(); h == nil || !h.Refused || h.Port != "3425" {
+		t.Fatalf("LastHeld %+v", h)
+	}
+	s := b.Sentence()
+	for _, want := range []string{"port 3425", "reserves for itself", "netsh int ipv4 show excludedportrange protocol=tcp", "pick another port in Settings"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("%q lacks %q", s, want)
+		}
+	}
+	if strings.Contains(s, "held by") || strings.Contains(s, "another program") {
+		t.Errorf("a refusal named a holder: %q", s)
 	}
 }
 

@@ -191,6 +191,10 @@ function gatewayFixSays(o) {
       : p.pid
       ? t("Port {port} is in use by {path} (pid {pid}): quit it, or move the gateway to another port in Settings.", p)
       : t("Port {port} is in use by another program: quit it, or move the gateway to another port in Settings.", p);
+    // #2756: Windows reserves blocks of port numbers for itself (Hyper-V,
+    // WinNAT), and a bind inside one fails with WSAEACCES. Nothing holds the
+    // port then, so there is nothing to quit, only another port to pick
+    case "reserved": return t("Port {port} can't be bound: the system turned it down, as Windows does for a number inside a range it reserves for itself. Pick another port in Settings (netsh int ipv4 show excludedportrange protocol=tcp lists them).", p);
     case "other": return t("magpie {v} serves the gateway, and it isn't older than this one: quit it there to serve the gateway here.", p);
   }
   return t("The gateway couldn't be served here: {error}", p);
@@ -296,8 +300,9 @@ function renderGateway() {
     // restart: it serves the gateway in a moment, nothing to quit or move
     who.append(name, el("div", "sub", t("Starting the gateway…")));
   } else if (!g.running && state.gatewayHeld) {
-    // the gateway couldn't listen: what has the port, as far as it is read
-    who.append(name, el("div", "sub old err", gatewayFixSays({ reason: "taken", ...state.gatewayHeld })));
+    // the gateway couldn't listen: what has the port, as far as it is read,
+    // or the system's refusal of a number it keeps for itself (#2756)
+    who.append(name, el("div", "sub old err", gatewayFixSays({ reason: state.gatewayHeld.refused ? "reserved" : "taken", ...state.gatewayHeld })));
   } else who.append(name, el("div", "sub", g.running
     ? [t(g.models === 1 ? "{n} model" : "{n} models", { n: g.models }), n ? t(n === 1 ? "{n} agent routed through it" : "{n} agents routed through it", { n }) : t("no agent routed through it yet"), t("five APIs, one URL")].join(" · ")
     : t("start it with magpie serve, or open magpie at login")));
