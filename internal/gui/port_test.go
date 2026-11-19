@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -38,6 +39,25 @@ func answers(p int) bool {
 	}
 	res.Body.Close()
 	return res.StatusCode == http.StatusOK
+}
+
+// #2756: Settings said "in use by another program" for a port Windows
+// refuses — a number inside a range it reserves for itself — and the
+// reporter went looking for a program that wasn't there. Each failure keeps
+// its own reason, and one that isn't read is kept as it came.
+func TestPortUnusableNamesEachFailure(t *testing.T) {
+	refused := errors.New("listen tcp 127.0.0.1:3425: bind: An attempt was made to access a socket in a way forbidden by its access permissions.")
+	if got := portUnusable(3425, refused).Error(); got != "port 3425 can't be bound: the system turned it down, as Windows does for a number inside a range it reserves for itself; pick another one" {
+		t.Fatalf("a refused port says %q", got)
+	}
+	busy := errors.New("listen tcp 127.0.0.1:3425: bind: address already in use")
+	if got := portUnusable(3425, busy).Error(); !strings.Contains(got, "in use by another program") {
+		t.Fatalf("a busy port says %q", got)
+	}
+	other := errors.New("listen tcp: lookup tcp/3425: unknown port")
+	if got, want := portUnusable(3425, other).Error(), "port 3425 can't be bound: "+other.Error(); got != want {
+		t.Fatalf("another failure says %q, want %q", got, want)
+	}
 }
 
 // Settings' gateway port (Magic_zero on Discord) moves the gateway this

@@ -62,6 +62,27 @@ func errPortTaken(p int) error {
 	return fmt.Errorf("port %d is in use by another program: pick another one", p)
 }
 
+// errPortRefused is a port the system won't let magpie bind with nothing
+// listening on it: on Windows, a number inside a range it reserves for
+// itself (#2756).
+func errPortRefused(p int) error {
+	return fmt.Errorf("port %d can't be bound: the system turned it down, as Windows does for a number inside a range it reserves for itself; pick another one", p)
+}
+
+// portUnusable is why the gateway can't listen on p, in the system's own
+// words: another program has it, the system refused it (#2756: Settings said
+// "in use by another program" for both, and the reporter went looking for a
+// program that wasn't there), or something else, which is kept as it came.
+func portUnusable(p int, err error) error {
+	switch {
+	case gateway.AddrInUse(err):
+		return errPortTaken(p)
+	case gateway.PortRefused(err):
+		return errPortRefused(p)
+	}
+	return fmt.Errorf("port %d can't be bound: %w", p, err)
+}
+
 // setPort moves the gateway to port p (0 for the default) — the port in
 // Settings' Gateway address (Magic_zero on Discord: 3425 was taken, and a port of one's
 // own is easier to tell apart): it checks nothing listens there, saves it,
@@ -103,7 +124,7 @@ func setPort(p int) (portJSON, error) {
 		host = "0.0.0.0"
 	}
 	if err := portFree(net.JoinHostPort(host, strconv.Itoa(want))); err != nil {
-		return portJSON{}, errPortTaken(want)
+		return portJSON{}, portUnusable(want, err)
 	}
 	// the agents reaching the gateway where it is now, to move with it
 	on := agent.OnGateway()
@@ -116,7 +137,7 @@ func setPort(p int) (portJSON, error) {
 			back := settings.Load()
 			back.Port = was
 			_ = settings.Save(back)
-			return portJSON{}, errPortTaken(want)
+			return portJSON{}, portUnusable(want, err)
 		}
 	} else {
 		// the port it was on was taken by something else: it serves now

@@ -349,7 +349,8 @@ type stateJSON struct {
 	// this one's place, which the Agents page says (gateway_older.go)
 	GatewayOther *gatewaySkew `json:"gatewayOther,omitempty"`
 	// GatewayHeld: the program that has the gateway's port when this magpie
-	// couldn't listen on it, as far as it could be read (gateway.PortHeld)
+	// couldn't listen on it, as far as it could be read, or the system's
+	// refusal of it when nothing has it (gateway.PortHeld, #2756)
 	GatewayHeld *gateway.PortHeld `json:"gatewayHeld,omitempty"`
 	// OptionLists are the fields' option lists, each once, that a field's
 	// List names (shareOptions), as indexes into Options, where each option

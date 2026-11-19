@@ -22,7 +22,8 @@ import (
 // touched. When the holder can't be read, nothing is said of it: the old
 // wording stands.
 
-// PortHeld is what holds the gateway's port.
+// PortHeld is what holds the gateway's port, or the system's refusal of it
+// when nothing does (#2756).
 type PortHeld struct {
 	Port string `json:"port"`
 	Name string `json:"name,omitempty"` // the program, when it could be read
@@ -37,6 +38,13 @@ type PortHeld struct {
 	Own bool `json:"own,omitempty"`
 	// Alt: a port to give Tailscale's HTTPS proxy in its place
 	Alt string `json:"alt,omitempty"`
+	// Refused: nothing holds the port and the system turned the bind down
+	// instead. Windows does that for a number inside a range it reserves
+	// for itself (Hyper-V and WinNAT take blocks at boot: #2756, where 3425
+	// sat inside 3390-3489). There is no holder to name then, and saying
+	// one has the port sends the user looking for a program that isn't
+	// there.
+	Refused bool `json:"refused,omitempty"`
 }
 
 // readHolder and readServes are the system readers, vars for the tests.
@@ -81,7 +89,8 @@ func sameProgram(a, b string) bool {
 var lastHeld atomic.Pointer[PortHeld]
 
 // LastHeld is what held the port the last time the gateway couldn't listen
-// on it, nil once it did, or when the holder wasn't read.
+// on it, or why the system refused it, nil once it did, or when neither
+// could be read.
 func LastHeld() *PortHeld { return lastHeld.Load() }
 
 // ClearHeld forgets LastHeld: the port is free, or served.
@@ -134,6 +143,9 @@ func whoHolds(ctx context.Context, port string,
 // Sentence is who holds the port, and for Tailscale what to do, in a
 // line for a log or a terminal.
 func (b PortHeld) Sentence() string {
+	if b.Refused {
+		return fmt.Sprintf("port %s can't be bound: the system turned it down, as Windows does for a number inside a range it reserves for itself (netsh int ipv4 show excludedportrange protocol=tcp lists them); pick another port in Settings", b.Port)
+	}
 	who := "another program"
 	switch {
 	case b.Tailscale && b.Name != "":
@@ -152,6 +164,33 @@ func (b PortHeld) Sentence() string {
 	}
 	return s
 }
+
+// NoteRefused keeps the gateway's port as refused for LastHeld: nothing
+// holds it, the system turned the bind down (#2756).
+func NoteRefused() PortHeld {
+	b := PortHeld{Port: Port(), Refused: true}
+	lastHeld.Store(&b)
+	return b
+}
+
+// portRefused says whether err is a listen the system turned down with
+// nothing holding the port. Windows answers a number inside one of its
+// reserved ranges with WSAEACCES, "An attempt was made to access a socket in
+// a way forbidden by its access permissions" (#2756); elsewhere a port under
+// 1024 without the right to it says "permission denied". errors.Is doesn't
+// reach the Windows one — the errno is Windows' own — so its words are read,
+// as addrInUse reads them.
+func portRefused(err error) bool {
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "forbidden by its access permissions") ||
+		strings.Contains(s, "permission denied")
+}
+
+// AddrInUse and PortRefused are addrInUse and portRefused for the callers
+// outside this package: Settings says why it can't take a port (#2756 said
+// every failure was "in use by another program").
+func AddrInUse(err error) bool   { return addrInUse(err) }
+func PortRefused(err error) bool { return portRefused(err) }
 
 // addrInUse says whether err is a listen that failed because another
 // program has the address.

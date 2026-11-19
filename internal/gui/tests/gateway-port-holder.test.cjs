@@ -39,11 +39,11 @@ function fixture(lang, world) {
 
 const ts = { port: "8848", tailscale: true, alt: "8443" };
 const words = {
-  en: { starting: /Starting the gateway/, tail: /Tailscale's serve or funnel has port 8848\. .*tailscale serve --https=8443 http:\/\/127\.0\.0\.1:8848.*another port in Settings/, named: /Port 8848 is in use by nginx \(pid 77\): quit it/, old: /start it with magpie serve/ },
-  zh: { starting: /正在启动网关/, tail: /Tailscale 的 serve 或 funnel 占用了端口 8848。.*tailscale serve --https=8443 http:\/\/127\.0\.0\.1:8848.*其他端口/, named: /端口 8848 被 nginx（pid 77）占用：请退出它/, old: /magpie serve/ },
-  "zh-TW": { starting: /正在啟動閘道/, tail: /Tailscale 的 serve 或 funnel 佔用了連接埠 8848。.*tailscale serve --https=8443 http:\/\/127\.0\.0\.1:8848.*其他連接埠/, named: /連接埠 8848 被 nginx（pid 77）佔用：請退出它/, old: /magpie serve/ },
-  ja: { starting: /ゲートウェイを起動しています/, tail: /Tailscale の serve または funnel がポート 8848 を使っています。.*tailscale serve --https=8443 http:\/\/127\.0\.0\.1:8848.*別のポート/, named: /ポート 8848 は nginx（pid 77）が使用中です/, old: /magpie serve/ },
-  de: { starting: /Zugangspunkt wird gestartet/, tail: /Tailscales serve oder funnel belegt Port 8848\. .*tailscale serve --https=8443 http:\/\/127\.0\.0\.1:8848.*anderen Port/, named: /Port 8848 wird von nginx \(PID 77\) verwendet/, old: /magpie serve/ },
+  en: { starting: /Starting the gateway/, tail: /Tailscale's serve or funnel has port 8848\. .*tailscale serve --https=8443 http:\/\/127\.0\.0\.1:8848.*another port in Settings/, named: /Port 8848 is in use by nginx \(pid 77\): quit it/, old: /start it with magpie serve/ , refused: /Port 3425 can't be bound.*netsh int ipv4 show excludedportrange protocol=tcp/ },
+  zh: { starting: /正在启动网关/, tail: /Tailscale 的 serve 或 funnel 占用了端口 8848。.*tailscale serve --https=8443 http:\/\/127\.0\.0\.1:8848.*其他端口/, named: /端口 8848 被 nginx（pid 77）占用：请退出它/, old: /magpie serve/ , refused: /无法监听端口 3425.*netsh int ipv4 show excludedportrange protocol=tcp/ },
+  "zh-TW": { starting: /正在啟動閘道/, tail: /Tailscale 的 serve 或 funnel 佔用了連接埠 8848。.*tailscale serve --https=8443 http:\/\/127\.0\.0\.1:8848.*其他連接埠/, named: /連接埠 8848 被 nginx（pid 77）佔用：請退出它/, old: /magpie serve/ , refused: /無法監聽連接埠 3425.*netsh int ipv4 show excludedportrange protocol=tcp/ },
+  ja: { starting: /ゲートウェイを起動しています/, tail: /Tailscale の serve または funnel がポート 8848 を使っています。.*tailscale serve --https=8443 http:\/\/127\.0\.0\.1:8848.*別のポート/, named: /ポート 8848 は nginx（pid 77）が使用中です/, old: /magpie serve/ , refused: /ポート 3425 を待ち受けできません.*netsh int ipv4 show excludedportrange protocol=tcp/ },
+  de: { starting: /Zugangspunkt wird gestartet/, tail: /Tailscales serve oder funnel belegt Port 8848\. .*tailscale serve --https=8443 http:\/\/127\.0\.0\.1:8848.*anderen Port/, named: /Port 8848 wird von nginx \(PID 77\) verwendet/, old: /magpie serve/ , refused: /Port 3425 lässt sich nicht belegen.*netsh int ipv4 show excludedportrange protocol=tcp/ },
 };
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -87,6 +87,14 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.equal(await page.locator("#gateway .sub.err").count(), 0);
         await context.close();
       }
+      // #2756: a port Windows keeps for itself. Nothing holds it, so no
+      // program is named, and the way out is another port
+      {
+        const { context, page } = await open({ held: { port: "3425", refused: true }, answer: {} });
+        assert.match(await sub(page).textContent(), w.refused);
+        assert.doesNotMatch(await sub(page).textContent(), /in use by another program|被其他程序占用/);
+        await context.close();
+      }
       // the holder not read: the card's old line, nothing made up
       {
         const { context, page } = await open({ held: undefined, answer: {} });
@@ -101,6 +109,15 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await page.locator("#gateway .gw-fix").click();
         await page.locator("#gateway .sub.err").waitFor();
         assert.match(await page.locator("#gateway .sub.err").textContent(), w.tail);
+        await context.close();
+      }
+      // and a refusal from the same button
+      {
+        const world = { held: undefined, answer: { ok: false, reason: "reserved", port: "3425" } };
+        const { context, page } = await open(world);
+        await page.locator("#gateway .gw-fix").click();
+        await page.locator("#gateway .sub.err").waitFor();
+        assert.match(await page.locator("#gateway .sub.err").textContent(), w.refused);
         await context.close();
       }
       assert.deepEqual(errors, []);
